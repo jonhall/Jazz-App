@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Poetix Pitch→Action Probe</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:850px;margin:40px auto;padding:0 20px;background:#111;color:#eee}button,select{font:inherit;padding:.55rem .8rem;margin:.25rem}button{cursor:pointer}.card{border:1px solid #555;border-radius:12px;padding:20px;margin:16px 0}.big{font-size:4rem;text-align:center;min-height:5rem}.muted{color:#aaa}.ok{color:#7ee787}.bad{color:#ff7b72}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #444;padding:7px;text-align:left}code{background:#222;padding:2px 5px;border-radius:4px}
+</style>
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Poetix">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+</head><body>
+<h1>Poetix Pitch→Action Probe</h1>
+<p class="muted">B♭ trumpet written pitches. Experimental prototype: HEAR / READ / BOTH, microphone response, latency, rescue, CSV.</p>
+<div class="card row">
+<label>Mode <select id="mode"><option>HEAR</option><option>READ</option><option>BOTH</option></select></label>
+<label>Scored trials <strong>20</strong> (5 × G/A/C/D) + 2 warm-ups</label>
+<button id="mic">Enable microphone</button><button id="start">Start session</button><button id="export">Export CSV</button>
+</div>
+<div class="card">
+<div>Trial <span id="trial">–</span> · Target set: G4 A4 C5 D5</div>
+<div id="cue" class="big"></div>
+<div class="row"><button id="replay">Replay target</button><button id="reveal">Reveal / rescue</button><button id="next">Next</button></div>
+<p id="status">Enable the microphone, then start.</p>
+<p>Detected (raw): <strong id="det">–</strong> · written equivalent: <strong id="interp">–</strong> · latency: <strong id="lat">–</strong></p>
+</div>
+<div class="card"><h2>Results</h2><table><thead><tr><th>#</th><th>Mode</th><th>Target</th><th>Response</th><th>Correct</th><th>Latency ms</th><th>Rescue</th></tr></thead><tbody id="rows"></tbody></table></div>
+<script>
+const written=[{n:'G4',m:67},{n:'A4',m:69},{n:'C5',m:72},{n:'D5',m:74}]; // written Bb trumpet
+let ctx,stream,analyser,data,raf,session=[],targets=[],i=-1,t0=0,done=false,rescue=false,stable=[];
+const $=id=>document.getElementById(id);
+function hz(m){return 440*Math.pow(2,(m-69)/12)}
+function concertMidi(writtenMidi){return writtenMidi-2} // Bb trumpet sounds M2 lower
+function playTarget(){if(i<0)return; if(!ctx)ctx=new AudioContext(); let o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=hz(concertMidi(targets[i].m));g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.18,ctx.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.7);o.connect(g).connect(ctx.destination);o.start();o.stop(ctx.currentTime+.72)}
+function showCue(){let m=$('mode').value, t=targets[i];$('cue').textContent=(m==='READ'||m==='BOTH')?t.n:'';if(m==='HEAR'||m==='BOTH')playTarget();t0=performance.now()+750;done=false;rescue=false;stable=[];$('status').textContent='Respond on trumpet or whistle; octave is ignored.';$('det').textContent='–';$('interp').textContent='–';$('lat').textContent='–'}
+function start(){session=[];$('rows').innerHTML='';targets=[];
+for(let rep=0;rep<5;rep++)for(let k=0;k<written.length;k++)targets.push(written[k]);
+for(let k=targets.length-1;k>0;k--){let j=Math.floor(Math.random()*(k+1));[targets[k],targets[j]]=[targets[j],targets[k]]}
+warmupsLeft=2;isWarmup=true;i=-1;
+$('trial').textContent='Warm-up 1 / 2';
+targets.unshift(written[Math.floor(Math.random()*written.length)]);
+targets.unshift(written[Math.floor(Math.random()*written.length)]);
+i=0;showCue()}
+function next(){if(i<0)return;i++;
+if(i>=targets.length){$('status').textContent='Session complete.';$('cue').textContent='';return}
+if(i<2){isWarmup=true;$('trial').textContent=`Warm-up ${i+1} / 2`}
+else{isWarmup=false;$('trial').textContent=`${i-1} / 20`}
+showCue()}
+function reveal(){if(i<0)return;rescue=true;$('cue').textContent=targets[i].n;playTarget()}
+function midiName(m){const ns=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];return ns[(m%12+12)%12]+(Math.floor(m/12)-1)}
+function autoCorrelate(buf,sr){let rms=0;for(let x of buf)rms+=x*x;rms=Math.sqrt(rms/buf.length);if(rms<.02)return -1;let best=-1,bestc=0;for(let off=Math.floor(sr/1200);off<Math.floor(sr/120);off++){let c=0;for(let j=0;j<buf.length-off;j++)c+=buf[j]*buf[j+off];if(c>bestc){bestc=c;best=off}}return best>0?sr/best:-1}
+async function mic(){ctx=ctx||new AudioContext();stream=await navigator.mediaDevices.getUserMedia({audio:true});let src=ctx.createMediaStreamSource(stream);analyser=ctx.createAnalyser();analyser.fftSize=4096;data=new Float32Array(analyser.fftSize);src.connect(analyser);listen();$('status').textContent='Microphone enabled.'}
+function listen(){analyser.getFloatTimeDomainData(data);let f=autoCorrelate(data,ctx.sampleRate);if(f>0&&i>=0&&!done&&performance.now()>=t0){let detectedConcert=Math.round(69+12*Math.log2(f/440));let interpretedWritten=detectedConcert+2; // Bb trumpet written pitch; octave will be ignored
+$('det').textContent=midiName(detectedConcert);$('interp').textContent=midiName(interpretedWritten);let pc=((interpretedWritten%12)+12)%12;stable.push(pc);if(stable.length>4)stable.shift();if(stable.length===4&&stable.every(x=>x===stable[0]))record(interpretedWritten,detectedConcert)}raf=requestAnimationFrame(listen)}
+function record(wm,detectedConcert){done=true;let t=targets[i],targetPc=((t.m%12)+12)%12,responsePc=((wm%12)+12)%12,correct=responsePc===targetPc,lat=Math.max(0,Math.round(performance.now()-t0));$('lat').textContent=lat+' ms';
+if(isWarmup){$('status').innerHTML=(correct?'<span class="ok">Warm-up: correct note class</span>':'<span class="bad">Warm-up: different note class</span>')+' — not scored';return}
+$('status').innerHTML=correct?'<span class="ok">Correct note class</span>':'<span class="bad">Different note class</span>';
+let r={trial:i-1,mode:$('mode').value,target:t.n,detected:midiName(detectedConcert),response:midiName(wm),correct,latency_ms:lat,rescue};session.push(r);
+let tr=document.createElement('tr');tr.innerHTML=`<td>${r.trial}</td><td>${r.mode}</td><td>${r.target}</td><td>${r.response}</td><td>${r.correct?'yes':'no'}</td><td>${r.latency_ms}</td><td>${r.rescue?'yes':'no'}</td>`;$('rows').appendChild(tr)}
+function exp(){let h='trial,mode,target,detected,response,correct,latency_ms,rescue\n';let s=h+session.map(r=>Object.values(r).join(',')).join('\n');let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/csv'}));a.download='poetix_probe.csv';a.click()}
+$('mic').onclick=mic;$('start').onclick=start;$('next').onclick=next;$('replay').onclick=playTarget;$('reveal').onclick=reveal;$('export').onclick=exp;
+</script><script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+}
+</script>
+</body></html>

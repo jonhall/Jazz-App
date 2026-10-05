@@ -1,0 +1,18 @@
+{
+  "name": "Poetix Pitch\u2013Action Probe",
+  "short_name": "Poetix",
+  "description": "Auditory\u2013motor pitch-action probe for B-flat trumpet.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
